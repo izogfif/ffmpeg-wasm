@@ -36,10 +36,10 @@
       ffmpeg = await createFFmpeg({
         locateFile: (file) => './wasm/' + file,
         print: (text) => {
-          outputData += text;
+          outputData += text + '\n';
         },
         printErr: (text) => {
-          outputData += text;
+          outputData += text + '\n';
         }
       });
 
