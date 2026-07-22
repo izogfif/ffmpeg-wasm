@@ -50,23 +50,23 @@
       }
 
       ffmpeg._callMain = function(args) {
-        const prog = './this.program';
+        const prog = 'ffmpeg';
         const argc = args.length + 1;
-        const argvPtr = ffmpeg.___libc_malloc((argc + 1) * 4);
-        let argvOffset = 0;
+        const argvWords = (argc + 1);
+        const argvPtr = ffmpeg.___libc_malloc(argvWords * 4);
+        const argvBase = argvPtr >> 2;
 
-        const progPtr = ffmpeg.___libc_malloc(prog.length + 1);
-        writeStr(ffmpeg, prog, progPtr);
-        ffmpeg.HEAPU32[argvOffset >> 2] = progPtr;
-        argvOffset += 4;
-
-        for (const arg of args) {
-          const argPtr = ffmpeg.___libc_malloc(arg.length + 1);
-          writeStr(ffmpeg, arg, argPtr);
-          ffmpeg.HEAPU32[argvOffset >> 2] = argPtr;
-          argvOffset += 4;
+        const strings = [];
+        for (let i = 0; i < argc; i++) {
+          const s = i === 0 ? prog : args[i - 1];
+          const ptr = ffmpeg.___libc_malloc(s.length + 1);
+          writeStr(ffmpeg, s, ptr);
+          ffmpeg.HEAPU32[argvBase + i] = ptr;
+          strings.push(s);
         }
-        ffmpeg.HEAPU32[argvOffset >> 2] = 0;
+        ffmpeg.HEAPU32[argvBase + argc] = 0;
+
+        console.log('argvPtr:', argvPtr, 'dump:', Array.from(ffmpeg.HEAPU32.subarray(argvBase, argvBase + argc + 1)).map(x => '0x' + x.toString(16)).join(', '));
 
         return ffmpeg._main(argc, argvPtr);
       };
