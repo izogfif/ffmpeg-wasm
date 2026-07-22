@@ -60,27 +60,24 @@ function writeStr(ffmpeg, str, ptr) {
 ### 3. Working `_callMain` Implementation
 ```javascript
 ffmpeg._callMain = function(args) {
-  const prog = './this.program';
+  const prog = 'ffmpeg';
   const argc = args.length + 1;
   const argvPtr = ffmpeg.___libc_malloc((argc + 1) * 4);
-  let argvOffset = 0;
+  const argvBase = argvPtr >> 2;
 
-  const progPtr = ffmpeg.___libc_malloc(prog.length + 1);
-  writeStr(ffmpeg, prog, progPtr);
-  ffmpeg.HEAPU32[argvOffset >> 2] = progPtr;
-  argvOffset += 4;
-
-  for (const arg of args) {
-    const argPtr = ffmpeg.___libc_malloc(arg.length + 1);
-    writeStr(ffmpeg, arg, argPtr);
-    ffmpeg.HEAPU32[argvOffset >> 2] = argPtr;
-    argvOffset += 4;
+  for (let i = 0; i < argc; i++) {
+    const s = i === 0 ? prog : args[i - 1];
+    const ptr = ffmpeg.___libc_malloc(s.length + 1);
+    writeStr(ffmpeg, s, ptr);
+    ffmpeg.HEAPU32[argvBase + i] = ptr;
   }
-  ffmpeg.HEAPU32[argvOffset >> 2] = 0;
+  ffmpeg.HEAPU32[argvBase + argc] = 0;
 
   return ffmpeg._main(argc, argvPtr);
 };
 ```
+
+Note: Use explicit array indices (`argvBase + i`) instead of incrementing offsets. Incrementing offsets (`argvOffset += 4`) causes heap corruption because `malloc` may move the heap base.
 
 ### 4. Exit Codes
 - Exit code `-28` is NOT an FFmpeg error - it's an Emscripten ABORT flag

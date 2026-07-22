@@ -36,11 +36,9 @@
       ffmpeg = await createFFmpeg({
         locateFile: (file) => './wasm/' + file,
         print: (text) => {
-          console.log('PRINT:', text);
           outputData += text;
         },
         printErr: (text) => {
-          console.error('PRINTERR:', text);
           outputData += text;
         }
       });
@@ -70,7 +68,6 @@
         return ffmpeg._callMain(args);
       };
 
-      console.log('FFmpeg loaded');
       output.textContent = 'FFmpeg ready. Select a file.';
     }
 
