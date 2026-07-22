@@ -8,3 +8,4 @@ To test in Chrome use MCP:
 - Test video file is `sample-video.mkv`.
 - If you want to restart dev server, you might need to kill `node` executable. You must only kill the executable that listens on port 8080.
 - If you encounter issues with launching dev server or Chrome or accessig it via MCP, you must stop and warn the user. Do not attempt to use MSEdge, Firefox or other browsers.
+- If you need to add some command-line flags to Chrome, tell that to the user. Do not attempt to launch Chrome with those flags. User will add them to Chrome's launch configuration and restart Chrome for you.
