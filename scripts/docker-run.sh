@@ -1,1 +1,1 @@
-docker run -it -v $(pwd):/ffmpeg-wasm -w /ffmpeg-wasm debian:12.5
+docker run -it -v $(pwd):/ffmpeg-wasm -w /ffmpeg-wasm --name ffmpeg-wasm-builder debian:12.5
