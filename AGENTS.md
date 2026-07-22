@@ -1,11 +1,11 @@
 To test in Chrome use MCP:
 
-- Check if Chrome is running by sending an HTTP request to http://localhost:9222 and only if the request times out, start Chrome.
-- To start Chrome launch it in Powershell in background with command `b:\browsers\GoogleChromePortable149-russia\GoogleChromePortable.exe` without arguments, it automatically listens at port 9222:
+- Check if Chrome is running by sending an HTTP request to http://localhost:9224 and only if the request times out, start Chrome.
+- To start Chrome launch it in Powershell in background with command `b:\browsers\GoogleChromePortable149-russia\GoogleChromePortable.exe` without arguments, it automatically listens at port 9224:
 ```
 powershell -Command "Start-Process 'b:\browsers\GoogleChromePortable149-russia\GoogleChromePortable.exe' -WindowStyle Hidden"
 ```
-
+- To connect to Chrome use connectDebugger tool and give it port 9224.
 - To check that dev server is running, send an HTTP request to http://localhost:8080/index.html and only if you get no response start the dev server (see below).
 - To start dev server, run Powershell in background with command `node serve.js`.
 - To upload a file in `<input type="file">` you might first need to copy the file to a temp folder.

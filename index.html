@@ -18,21 +18,64 @@
     let ffmpeg;
     let outputData = '';
 
+    function writeStr(ffmpeg, str, ptr) {
+      for (let i = 0; i < str.length; i++) {
+        const offset = ptr + i;
+        const wordOffset = offset >> 2;
+        const byteOffset = offset & 3;
+        let word = ffmpeg.HEAPU32[wordOffset];
+        word = (word & ~(0xFF << (byteOffset * 8))) | (str.charCodeAt(i) << (byteOffset * 8));
+        ffmpeg.HEAPU32[wordOffset] = word;
+      }
+      ffmpeg.HEAPU32[(ptr + str.length) >> 2] &= ~(0xFF << ((ptr + str.length) & 3) * 8);
+    }
+
     async function loadFFmpeg() {
       output.textContent = 'Loading FFmpeg...';
       outputData = '';
       ffmpeg = await createFFmpeg({
         locateFile: (file) => './wasm/' + file,
-        print: (text) => { 
-          console.log('PRINT:', text); 
-          outputData += text; 
+        print: (text) => {
+          console.log('PRINT:', text);
+          outputData += text;
         },
-        printErr: (text) => { 
-          console.error('PRINTERR:', text); 
-          outputData += text; 
+        printErr: (text) => {
+          console.error('PRINTERR:', text);
+          outputData += text;
         }
       });
-      console.log('FFmpeg loaded, ffmpeg.print:', typeof ffmpeg.print);
+
+      if (!ffmpeg._main) {
+        throw new Error('ffmpeg._main not found');
+      }
+
+      ffmpeg._callMain = function(args) {
+        const prog = './this.program';
+        const argc = args.length + 1;
+        const argvPtr = ffmpeg.___libc_malloc((argc + 1) * 4);
+        let argvOffset = 0;
+
+        const progPtr = ffmpeg.___libc_malloc(prog.length + 1);
+        writeStr(ffmpeg, prog, progPtr);
+        ffmpeg.HEAPU32[argvOffset >> 2] = progPtr;
+        argvOffset += 4;
+
+        for (const arg of args) {
+          const argPtr = ffmpeg.___libc_malloc(arg.length + 1);
+          writeStr(ffmpeg, arg, argPtr);
+          ffmpeg.HEAPU32[argvOffset >> 2] = argPtr;
+          argvOffset += 4;
+        }
+        ffmpeg.HEAPU32[argvOffset >> 2] = 0;
+
+        return ffmpeg._main(argc, argvPtr);
+      };
+
+      ffmpeg.callMain = function(args) {
+        return ffmpeg._callMain(args);
+      };
+
+      console.log('FFmpeg loaded');
       output.textContent = 'FFmpeg ready. Select a file.';
     }
 
@@ -49,16 +92,12 @@
 
       const data = await file.arrayBuffer();
       ffmpeg.FS.writeFile(file.name, new Uint8Array(data));
-      output.textContent += 'Running ffmpeg -i ' + file.name + '...\n';
+      output.textContent += 'Running ffmpeg -hide_banner -i ' + file.name + '...\n';
 
-      console.log('About to call callMain');
-      const exitCode = ffmpeg.callMain(['-i', file.name]);
+      const exitCode = ffmpeg.callMain(['-hide_banner', '-i', file.name]);
       console.log('callMain returned:', exitCode);
 
-      let output_text = outputData;
-      output_text += '\nExit code: ' + exitCode + (exitCode === 0 ? ' (success)' : ' (error)');
-
-      output.textContent = output_text;
+      output.textContent = outputData;
     });
   </script>
 </body>
