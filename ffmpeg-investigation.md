@@ -104,6 +104,17 @@ Input #0, matroska,webm, from 'sample-video.mkv':
 - `index.html` - Added working `_callMain` implementation with proper string allocation
 - `wasm/ffmpeg-gpl.js` - Patch at line 5853 to fix print callback (already applied)
 
+## Large File Support (WORKERFS)
+FFmpeg WASM supports WORKERFS for streaming large files without loading them entirely into WASM memory:
+
+```javascript
+ffmpeg.FS.mount(ffmpeg.WORKERFS, { files: [file] }, '/');
+```
+
+This uses `FileReaderSync` to stream file chunks on-demand, avoiding memory issues with multi-GB files.
+
+Note: WORKERFS requires `SharedArrayBuffer` which needs cross-origin isolation (COOP/COEP headers).
+
 ## Environment
 - WASM FFmpeg version: N-125483-g160737cf0d
 - Built with Emscripten 6.0.2

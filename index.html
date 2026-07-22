@@ -82,8 +82,7 @@
       outputData = '';
       output.textContent = 'Loading ' + file.name + '...\n';
 
-      const data = await file.arrayBuffer();
-      ffmpeg.FS.writeFile(file.name, new Uint8Array(data));
+      ffmpeg.FS.mount(ffmpeg.WORKERFS, { files: [file] }, '/');
       output.textContent += 'Running ffmpeg -hide_banner -i ' + file.name + '...\n';
 
       const exitCode = ffmpeg.callMain(['-hide_banner', '-i', file.name]);
