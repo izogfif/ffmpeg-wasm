@@ -12,23 +12,27 @@
   <input type="file" id="fileInput" accept="video/*,audio/*,image/*" />
   <div id="output">Select a media file...</div>
 
-  <script>
-    window.consoleOutput = '';
-    const origLog = console.log;
-    const origErr = console.error;
-    console.log = (...args) => { window.consoleOutput += args.join(' ') + '\n'; origLog.apply(console, args); };
-    console.error = (...args) => { window.consoleOutput += args.join(' ') + '\n'; origErr.apply(console, args); };
-  </script>
   <script src="./wasm/ffmpeg-gpl.js"></script>
   <script>
     const output = document.getElementById('output');
     let ffmpeg;
+    let outputData = '';
 
     async function loadFFmpeg() {
       output.textContent = 'Loading FFmpeg...';
+      outputData = '';
       ffmpeg = await createFFmpeg({
-        locateFile: (file) => './wasm/' + file
+        locateFile: (file) => './wasm/' + file,
+        print: (text) => { 
+          console.log('PRINT:', text); 
+          outputData += text; 
+        },
+        printErr: (text) => { 
+          console.error('PRINTERR:', text); 
+          outputData += text; 
+        }
       });
+      console.log('FFmpeg loaded, ffmpeg.print:', typeof ffmpeg.print);
       output.textContent = 'FFmpeg ready. Select a file.';
     }
 
@@ -40,16 +44,18 @@
       const file = e.target.files[0];
       if (!file || !ffmpeg) return;
 
-      window.consoleOutput = '';
+      outputData = '';
       output.textContent = 'Loading ' + file.name + '...\n';
 
       const data = await file.arrayBuffer();
       ffmpeg.FS.writeFile(file.name, new Uint8Array(data));
       output.textContent += 'Running ffmpeg -i ' + file.name + '...\n';
 
+      console.log('About to call callMain');
       const exitCode = ffmpeg.callMain(['-i', file.name]);
+      console.log('callMain returned:', exitCode);
 
-      let output_text = window.consoleOutput;
+      let output_text = outputData;
       output_text += '\nExit code: ' + exitCode + (exitCode === 0 ? ' (success)' : ' (error)');
 
       output.textContent = output_text;
