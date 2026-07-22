@@ -15,3 +15,4 @@ powershell -Command "Start-Process 'b:\browsers\GoogleChromePortable149-russia\G
 - If you need to add some command-line flags to Chrome, tell that to the user. Do not attempt to launch Chrome with those flags. User will add them to Chrome's launch configuration and restart Chrome for you.
 - Do not use `start` command to launch applications, this command hangs on this computer.
 - Do not use `launchChrome` tool. If you need to start Chrome, start as described above and then connect.
+- **Navigation**: Use `tab create` with `url` parameter to open a URL in a new tab. Example: `tab create` action with `reference: "my tab"`, `url: "https://www.google.com"`. Do not use the `navigate` action — it is broken.
