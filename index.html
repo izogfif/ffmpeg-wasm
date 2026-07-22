@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FFmpeg WASM</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; }
+    #output { white-space: pre-wrap; font-family: monospace; background: #f4f4f4; padding: 1em; min-height: 200px; max-height: 400px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>FFmpeg WASM</h1>
+  <input type="file" id="fileInput" accept="video/*,audio/*,image/*" />
+  <div id="output">Select a media file...</div>
+
+  <script>
+    window.consoleOutput = '';
+    const origLog = console.log;
+    const origErr = console.error;
+    console.log = (...args) => { window.consoleOutput += args.join(' ') + '\n'; origLog.apply(console, args); };
+    console.error = (...args) => { window.consoleOutput += args.join(' ') + '\n'; origErr.apply(console, args); };
+  </script>
+  <script src="./wasm/ffmpeg-gpl.js"></script>
+  <script>
+    const output = document.getElementById('output');
+    let ffmpeg;
+
+    async function loadFFmpeg() {
+      output.textContent = 'Loading FFmpeg...';
+      ffmpeg = await createFFmpeg({
+        locateFile: (file) => './wasm/' + file
+      });
+      output.textContent = 'FFmpeg ready. Select a file.';
+    }
+
+    loadFFmpeg().catch(err => {
+      output.textContent = 'Error loading FFmpeg: ' + err.message;
+    });
+
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file || !ffmpeg) return;
+
+      window.consoleOutput = '';
+      output.textContent = 'Loading ' + file.name + '...\n';
+
+      const data = await file.arrayBuffer();
+      ffmpeg.FS.writeFile(file.name, new Uint8Array(data));
+      output.textContent += 'Running ffmpeg -i ' + file.name + '...\n';
+
+      const exitCode = ffmpeg.callMain(['-i', file.name]);
+
+      let output_text = window.consoleOutput;
+      output_text += '\nExit code: ' + exitCode + (exitCode === 0 ? ' (success)' : ' (error)');
+
+      output.textContent = output_text;
+    });
+  </script>
+</body>
+</html>
