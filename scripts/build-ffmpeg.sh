@@ -54,22 +54,43 @@ FLAGS=(
 #  -s EXPORT_ES6=1                     # https://github.com/emscripten-core/emscripten/issues/22508
 #  -s STRICT=1                         # 3.1.65 wasm-ld: error: lto.tmp: undefined symbol: __syscall_geteuid32
   -s INVOKE_RUN=0
-  -s EXIT_RUNTIME=1
+  -s EXIT_RUNTIME=0                    # keep the runtime alive across runs (reusable module); no exitRuntime()/PThread teardown is emitted
   -s MODULARIZE=1
   -s EXPORT_NAME="createFFmpeg"
   -s EXPORTED_FUNCTIONS="[_main, ___wasm_init_memory_flag]"
-  -s EXPORTED_RUNTIME_METHODS="[callMain, FS, HEAPU32, WORKERFS]"
+  -s EXPORTED_RUNTIME_METHODS="[callMain, FS, HEAPU32, WORKERFS, runtimeKeepalivePush, runtimeKeepalivePop]"
 
-                                        # emcripten 6.0.2 reuquires listed all that goes into createFFmpeg({...
+                                        # emcripten 6.0.2 requires listed all that goes into createFFmpeg({...
   -s INCOMING_MODULE_JS_API="[locateFile, mainScriptUrlOrBlob, onExit, printErr, stderr, stdin, stdout, wasmMemory]"
   -s INITIAL_MEMORY=96mb
   -s ALLOW_MEMORY_GROWTH=1
   -s MAXIMUM_MEMORY=4gb
   -s ENVIRONMENT=worker
-  -s PROXY_TO_PTHREAD=1
+  -s PROXY_TO_PTHREAD=1                # REQUIRED with ffmpeg 8's CLI scheduler: main() runs on an internal em-pthread
+                                       # ("Application main thread", spawned per callMain by _emscripten_proxy_main), so the
+                                       # module-hosting worker's event loop stays free to service the scheduler's
+                                       # SYNC-proxied nested pthread_create/FS calls mid-run. Without it (synchronous
+                                       # callMain) every audio-batch run deadlocked at the first nested spawn.
+                                       # Per-run completion signal: Module.onExit(status) fires on the hosting worker
+                                       # (real ffmpeg exit code: 0 success / 1 ffmpeg error) via the 5th -wv patch.
   -s STACK_SIZE=5MB                     # required since 3.1.27 (Uncaught Infinity runtime error)
   -s DEFAULT_PTHREAD_STACK_SIZE=2MB     # required since 3.1.27 (Uncaught Infinity runtime error)
   -o $OUTPUT_PATH
+                                        # Pthreads build (restored after the threadless rebuild proved ffmpeg 8 cannot
+                                        # transcode without the scheduler's real threads: `pthread_create() failed:
+                                        # Not supported`, exit -138 — see doc/reusable-runtime-build.md Addendum 2).
+                                        # The reusable runtime survives between runs: EXIT_RUNTIME=0 (no exitRuntime
+                                        # emitted) + the 5th -wv patch (persistent-runtime core) keeps the em-pthread
+                                        # pool alive across callMain() runs and recycles the finished main pthread.
+  -s USE_PTHREADS=1
+  -s PTHREAD_POOL_SIZE_STRICT=0         # don't hard-error when the pthread pool is exhausted; spawn on demand
+                                        # IMPORTED_MEMORY=1: keep the wasm importing `env.memory` so the wrapper can
+                                        # hand the module its own (shared) WebAssembly.Memory. With pthreads the
+                                        # import descriptor is shared-compatible: flags=2 (max|shared), min=1536
+                                        # (96mb), max=65536 (4gb) — the player's
+                                        # new WebAssembly.Memory({initial: 2048, maximum: 65536, shared: true}) is accepted.
+  -s IMPORTED_MEMORY=1
+  -s ASSERTIONS=1
 )
 
 if [ "$FFMPEG_LGPL" = false ] ; then

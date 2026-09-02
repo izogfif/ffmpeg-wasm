@@ -13,6 +13,11 @@ TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmak
 
 # `-Og` -> no optimization
 # `-g` -> debug info enabled
+# `-pthread` restored: the reusable-runtime build uses emscripten pthreads
+# (USE_PTHREADS=1 + PROXY_TO_PTHREAD=1). ffmpeg 8's CLI scheduler
+# (ffmpeg_sched.c task_start()) pthread_creates its tasks unconditionally, so
+# ffmpeg must be compiled WITH pthreads; `-pthread` at link time also enables
+# the emscripten pthread flags for the final link.
 CFLAGS="-O3 -flto -I$BUILD_DIR/include -pthread -msimd128 -mavx2"
 
 OUTPUT_FILENAME="ffmpeg"
