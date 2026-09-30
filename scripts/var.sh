@@ -18,7 +18,7 @@ TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmak
 # (ffmpeg_sched.c task_start()) pthread_creates its tasks unconditionally, so
 # ffmpeg must be compiled WITH pthreads; `-pthread` at link time also enables
 # the emscripten pthread flags for the final link.
-CFLAGS="-O3 -flto -I$BUILD_DIR/include -pthread -msimd128 -mavx2"
+CFLAGS="-O3 -flto -I$BUILD_DIR/include -pthread -msimd128 -mavx2 -D_FILE_OFFSET_BITS=64"
 
 OUTPUT_FILENAME="ffmpeg"
 if [ "$FFMPEG_LGPL" = true ] ; then
