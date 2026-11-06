@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ffmpeg-wasm census test harness</title>
+  <style>
+    body { font-family: sans-serif; max-width: 960px; margin: 1em auto; padding: 0 1em; }
+    #log { white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #111; color: #0f0; padding: 1em; min-height: 300px; max-height: 600px; overflow-y: auto; }
+    button { margin: 2px; padding: 6px 10px; }
+    button:disabled { opacity: .4; }
+    .pass { color: #0f0; } .fail { color: #f55; } .info { color: #7cf; }
+    select { margin: 4px; }
+    #status { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>ffmpeg-wasm census test harness</h1>
+  <p>
+    Module:
+    <select id="module">
+      <option value="ffmpeg-lgpl-wv.js" selected>ffmpeg-lgpl-wv.js (new census build)</option>
+      <option value="ffmpeg-gpl-wv.js">ffmpeg-gpl-wv.js (old tested build)</option>
+    </select>
+    <button id="load">Load module</button>
+    <span id="status">not loaded</span>
+  </p>
+  <p>
+    <button class="cmd" data-cmd="decoders" disabled>Runtime: -decoders</button>
+    <button class="cmd" data-cmd="encoders" disabled>Runtime: -encoders</button>
+    <button class="cmd" data-cmd="formats" disabled>Runtime: -formats</button>
+    <button class="cmd" data-cmd="census" disabled>Check: census contract</button>
+    <button class="cmd" data-cmd="probe" disabled>Probe: sample-video.mkv</button>
+    <button class="cmd" data-cmd="regress" disabled>Regression: remux matrix</button>
+    <button class="cmd" data-cmd="opus" disabled>WebM/Opus encode</button>
+    <button class="cmd" data-cmd="pgs" disabled>PGS subtitle extract</button>
+  </p>
+  <div id="log"></div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    function log(msg, cls) {
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      line.textContent = msg;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    let worker = null;
+    let pending = null; // {resolve, reject}
+
+    function ensureWorker() {
+      if (worker) return;
+      // cache-bust: serve.js sends no cache headers, so worker.js edits
+      // would otherwise be masked by the HTTP cache
+      worker = new Worker('./worker.js?v=' + Date.now());
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'log') {
+          if (m.text.trim()) log(m.text);
+        } else if (m.type === 'done') {
+          if (pending) { const p = pending; pending = null; p.resolve(m); }
+        } else if (m.type === 'error') {
+          if (pending) { const p = pending; pending = null; p.reject(new Error(m.text)); }
+        }
+      };
+    }
+
+    function post(msg) {
+      return new Promise((resolve, reject) => {
+        if (pending) return reject(new Error('a run is already in flight'));
+        pending = { resolve, reject };
+        ensureWorker();
+        worker.postMessage(msg);
+      });
+    }
+
+    async function loadModule() {
+      const name = document.getElementById('module').value;
+      statusEl.textContent = 'loading ' + name + '...';
+      log('=== loading ' + name + ' ===', 'info');
+      try {
+        const r = await post({ type: 'load', module: name });
+        statusEl.textContent = name + ' loaded';
+        log('module loaded, runtime ready', 'pass');
+        document.querySelectorAll('.cmd').forEach(b => b.disabled = false);
+      } catch (e) {
+        statusEl.textContent = 'load failed';
+        log('LOAD FAILED: ' + e.message, 'fail');
+      }
+    }
+
+    async function runCmd(name) {
+      const cmds = {
+        decoders: ['check', ['-hide_banner', '-decoders']],
+        encoders: ['check', ['-hide_banner', '-encoders']],
+        formats:  ['check',  ['-hide_banner', '-formats']],
+        census:   ['census', []],
+        probe:    ['run', ['-hide_banner', '-i', 'in/sample-video.mkv', '-map', '0', '-c', 'copy', '-f', 'null', 'n.null']],
+        regress:  ['regress', []],
+        opus:     ['run', ['-hide_banner', '-y', '-i', 'in/sample-video.mkv', '-t', '2', '-vn', '-c:a', 'libopus', '-f', 'webm', 'out.webm']],
+        pgs:      ['pgs', []],
+      };
+      const [type, args] = cmds[name];
+      log('=== ' + name + ' ===', 'info');
+      statusEl.textContent = 'running: ' + name;
+      try {
+        const r = await post({ type, args });
+        statusEl.textContent = name + ': ' + (r.ok ? 'PASS' : 'FAIL');
+        log('=== ' + name + ': ' + (r.ok ? 'PASS' : 'FAIL') + ' ===', r.ok ? 'pass' : 'fail');
+      } catch (e) {
+        statusEl.textContent = name + ': error';
+        log('ERROR: ' + e.message, 'fail');
+      }
+    }
+
+    document.getElementById('load').onclick = loadModule;
+    document.querySelectorAll('.cmd').forEach(b => b.onclick = () => runCmd(b.dataset.cmd));
+
+    // auto-load the sample file into the worker so probe/regress can use it
+    (async () => {
+      try {
+        const resp = await fetch('../sample-video.mkv');
+        const blob = await resp.blob();
+        const file = new File([blob], 'sample-video.mkv', { type: 'video/x-matroska' });
+        ensureWorker();
+        worker.postMessage({ type: 'file', file });
+        log('sample-video.mkv transferred to worker (' + blob.size + ' bytes)', 'info');
+      } catch (e) {
+        log('could not preload sample-video.mkv: ' + e.message, 'fail');
+      }
+    })();
+  </script>
+</body>
+</html>

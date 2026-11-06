@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 8080;
+const PORT = Number(process.env.PORT) || 8080;
 const ROOT = __dirname;
 
 const mimeTypes = {
@@ -15,7 +15,9 @@ const mimeTypes = {
 };
 
 const server = http.createServer((req, res) => {
-  let filePath = path.join(ROOT, req.url === '/' ? '/index.html' : req.url);
+  // strip query string (e.g. cache-busted ?v=...) before resolving the path
+  const cleanUrl = req.url.split('?')[0];
+  let filePath = path.join(ROOT, cleanUrl === '/' ? '/index.html' : cleanUrl);
 
   const ext = path.extname(filePath);
   const contentType = mimeTypes[ext] || 'application/octet-stream';
