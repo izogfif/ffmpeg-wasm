@@ -82,16 +82,20 @@ else
     FLAGS+=(
         --disable-everything
 
-        # libavdevice OFF: with --disable-everything alone, CONFIG_AVDEVICE
-        # stays 1 (it lives in LIBRARY_LIST, which --disable-everything does
-        # not touch), so fftools' guarded references (ffmpeg.c's
-        # #if CONFIG_AVDEVICE avdevice_register_all(), opt_common.c's
-        # devices block + PRINT_LIB_INFO(avdevice)) would compile in and
-        # require -lavdevice at link time. Disabling the library makes
-        # CONFIG_AVDEVICE 0, the references compile out (dead-code
-        # elimination at -O1+), and the census link needs no -lavdevice —
-        # the same mechanism upstream ffmpeg uses for --disable-avdevice.
-        "--disable-avdevice"
+        # libavdevice ON (player extension): the player's silence-synthesis
+        # runs `-f lavfi -i anullsrc=...` and `lavfi` is NOT a libavformat
+        # demuxer in this tree — it is lavfi.indev (CONFIG_LAVFI_INDEV,
+        # libavdevice/Makefile:35), registered as the "lavfi" demuxer by
+        # avdevice_register_all() (libavdevice/alldevices.c:45,67). So the
+        # LGPL variant keeps CONFIG_AVDEVICE=1 (it lives in LIBRARY_LIST,
+        # which --disable-everything does not touch), enables the lavfi
+        # indev below, and links -lavdevice (build-ffmpeg.sh). libavdevice
+        # is an LGPL library; the only object compiled into it under this
+        # census is lavfi.o (+alldevices.c) — no SDL, no platform devices.
+        # (With --disable-avdevice the same link would fail on undefined
+        # avdevice_* symbols: fftools' #if CONFIG_AVDEVICE references
+        # compile in whenever the library is on.)
+        "--enable-indev=lavfi"    # lavfi_demuxer (alldevices.c): `-f lavfi -i ...`
 
         # External libraries (survive --disable-everything: they live in
         # EXTERNAL_LIBRARY_LIST / EXTERNAL_AUTODETECT_LIBRARY_LIST, not in
@@ -102,7 +106,11 @@ else
         # Protocols: --disable-everything also unsets PROTOCOL_LIST, so the
         # file protocol MUST be re-enabled for WORKERFS I/O (file.c goes
         # through POSIX open() which the Emscripten FS/WORKERFS implements).
-        "--enable-protocol=file"
+        # pipe is required for the player's lane decode `-f nut -`: the CLI
+        # rewrites the bare `-` filename to `pipe:` (ffmpeg_opt.c:1511,
+        # ffmpeg_mux_init.c:3308) and the pipe protocol is the same file.c
+        # code path (fd 0/1), so it costs nothing extra.
+        "--enable-protocol=file,pipe"
 
         # Demuxers. NOTE: 'webm' is NOT a demuxer component in this tree —
         # webm input is handled by the matroska demuxer (runtime name
@@ -115,12 +123,24 @@ else
         # runtime aliases of the mov/mp4 muxers, NOT configure components
         # (verified against allformats.c); the real components are those
         # listed here.
-        "--enable-muxer=matroska,webm,mov,mp4,ipod,psp,ogg,adts,wav,image2,image2pipe,null"
+        # Player extension: nut (lane decode `-f nut -` stdout), segment
+        # (audio batch `-f segment -segment_times`), ass (raw ASS copy
+        # `-c:s copy -f ass`), webvtt (subtitle extract `-f webvtt`),
+        # pcm_s16le (STT `-f s16le` — runtime name "s16le", pcmenc.c PCMDEF).
+        "--enable-muxer=matroska,webm,mov,mp4,ipod,psp,ogg,adts,wav,image2,image2pipe,null,nut,segment,ass,webvtt,pcm_s16le"
 
         # Video decoders. NOTE: the msmpeg4v3 decoder's runtime listing name
         # is "msmpeg4" (msmpeg4dec.c:908); the configure component is
         # msmpeg4v3.
-        "--enable-decoder=hevc,mpeg4,theora,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2"
+        # Player extension: h264 (sample + most lane inputs), vp8/vp9/av1
+        # (webm lanes), mpeg2video/mpeg1video (mpg/VOB files), mjpeg
+        # (thumbnail backfill reads), wmv3/vc1 (WMV9 files, per the
+        # requester). All native in-tree LGPL decoders — no libvpx/libaom.
+        # wrapped_avframe: the lavfi indev's video output codec (the OCR
+        # lane's `-f lavfi -i color=...` packets are wrapped_avframe and
+        # must be decoded into the filtergraph; the null muxer also
+        # defaults to it).
+        "--enable-decoder=hevc,mpeg4,theora,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2,h264,vp8,vp9,av1,mpeg2video,mpeg1video,mjpeg,wmv3,vc1,wrapped_avframe"
 
         # Audio decoders. The mp3*/mp2* wildcards pull in the whole family
         # (mp3float is what the mp3 demuxer actually selects; mp3on4* needs
@@ -133,21 +153,30 @@ else
         # configure component is 'movtext' (movtextdec.c:594).
         "--enable-decoder=subrip,ass,ssa,webvtt,movtext,pgssub,dvdsub"
 
-        # Encoders
-        "--enable-encoder=aac,libopus,rawvideo,png"
+        # Encoders. Player extension: mjpeg (thumbnail JPEGs, auto-selects
+        # jpegtables+mpegvideoenc), webvtt (subtitle conversion), pcm_s16le
+        # (STT `-f s16le` — the raw PCM encoder, a few KB of memcpy).
+        # wrapped_avframe: the null muxer's default video codec (the
+        # inventory probe `-frames:v 1 -f null -` encodes the decoded
+        # frame to wrapped_avframe packets, which the muxer discards).
+        "--enable-encoder=aac,libopus,rawvideo,png,mjpeg,webvtt,pcm_s16le,wrapped_avframe"
 
         # Parsers: demuxers only auto-select some parsers and a missing
         # parser is a SILENT degradation (demux.c falls back to
         # AVSTREAM_PARSE_NONE with a VERBOSE-level log), so list them all.
         # NOTE: the census 'avc' parser is spelled h264; the truehd parser
-        # is the mlp parser.
-        "--enable-parser=aac,ac3,dca,mlp,mpegaudio,mpeg4video,hevc,h264,vorbis,opus,flac"
+        # is the mlp parser. Player extension: mpegvideo (mpeg1/2 video,
+        # parser_list.c:49), mjpeg, vp8, vp9, av1, vc1.
+        "--enable-parser=aac,ac3,dca,mlp,mpegaudio,mpeg4video,hevc,h264,vorbis,opus,flac,mpegvideo,mjpeg,vp8,vp9,av1,vc1"
 
         # Bitstream filters: aac_adtstoasc is auto-selected by the mov/
         # matroska muxers but is listed explicitly for clarity; the others
         # are only reachable via an explicit -bsf and must be listed to
-        # exist at all.
-        "--enable-bsf=aac_adtstoasc,extract_extradata,eac3_core,truehd_core,filter_units,h264_mp4toannexb,trace_headers"
+        # exist at all. Player extension: vp9_superframe_split is
+        # auto-selected by vp9_decoder (configure:3370) — without it the
+        # vp9 decoder silently degrades; vp9_superframe + av1_metadata
+        # cover webm-av1 input paths.
+        "--enable-bsf=aac_adtstoasc,extract_extradata,eac3_core,truehd_core,filter_units,h264_mp4toannexb,trace_headers,vp9_superframe,vp9_superframe_split,av1_metadata"
 
         # Filters: buffer/abuffer/buffersink/abuffersink are added to
         # filter_list.c unconditionally even under --disable-everything
@@ -156,8 +185,15 @@ else
         # aresample auto-inserted conversions, trim/atrim for -t/-ss/-to,
         # and the autorotate/crop family which is default-on for rotated
         # video). Filters used by a caller-supplied -vf/-af chain must be
-        # added here explicitly.
-        "--enable-filter=null,anull,format,aformat,scale,aresample,trim,atrim,crop,transpose,hflip,vflip,rotate"
+        # added here explicitly. Player extension: fps (thumbnail
+        # `-vf fps=...`), anullsrc (silence synthesis `anullsrc=...`),
+        # overlay + color (OCR lane: `-filter_complex
+        # [0:N]format=rgba[subs];[1:v]format=rgba[bg];[bg][subs]overlay=...`
+        # with `-f lavfi -i color=black@0:...` — the bitmap-subtitle-ocr
+        # path the SW cache's v2 note has always required). overlay pulls
+        # framesync.o and color shares vsrc_testsrc.o with nullsrc — both
+        # via the Makefile, no extra configure components.
+        "--enable-filter=null,anull,format,aformat,scale,aresample,trim,atrim,crop,transpose,hflip,vflip,rotate,fps,anullsrc,overlay,color"
     )
 fi
 

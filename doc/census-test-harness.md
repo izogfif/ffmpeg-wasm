@@ -29,12 +29,25 @@ census contract at runtime.
    | Check: census contract | asserts every census demuxer/muxer/decoder/encoder is present and every GPL/external codec is absent |
    | Probe: sample-video.mkv | full input probe (9 streams) + remux to null |
    | Regression: remux matrix | mkv/mp4/mov copy, ogg (libopus), wav (aac copy), null |
+   | Player-shape probes | one run per real isl-player command family: lane decode `-f nut -` (stdout pipe), inventory probe (`-frames:v 1 -f null -`), thumbnail chunk (`fps`+`scale`+mjpeg+image2), audio batch (`-f segment`), silence synthesis (`-f lavfi -i anullsrc`), STT decode (`-f s16le`), OCR lane (PGS + `color` + `overlay` filter_complex → PNG) |
    | WebM/Opus encode | audio-only webm encode via libopus |
    | PGS subtitle extract | copies the PGS stream into a matroska container |
 
+   The player-shape probes mirror the argv builders in the player repo
+   (`src/pipeline/nut.ts`, `ffmpeg-inventory.ts`, `thumbnail-ffmpeg.ts`,
+   `audio-transcode.ts`, `stt-audio.ts`, `subtitle.ts`). The OCR/PGS probes
+   use `ocr-pgs-fixture.mkv` (the player's `tests/fixtures/` fixture,
+   copied to the repo root — `sample-video.mkv` has no PGS stream).
+
 Expected results (verified 2026-11-06, both modules): census **PASS** on the
-lgpl build (126 decoders / 4 encoders / 23 formats, zero forbidden), all
+lgpl build (135 decoders / 7 encoders / 29 formats, zero forbidden), all
 functional tests **PASS** on both modules.
+
+The player-shape probes caught two components the audit had missed — the
+`wrapped_avframe` encoder (the null muxer's default video codec, used by
+the inventory probe `-f null -`) and the `wrapped_avframe` decoder (the
+wire format of the lavfi indev's video sources, used by the OCR lane's
+`-f lavfi -i color=...` input). Both are native in-tree LGPL codecs.
 
 ## Runtime contract the harness follows
 

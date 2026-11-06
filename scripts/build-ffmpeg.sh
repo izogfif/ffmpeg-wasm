@@ -56,14 +56,17 @@ if [ "$FFMPEG_LGPL" = false ] ; then
         -lzimg
     )
 else
-    # -lavdevice and -s USE_SDL=2 removed for the LGPL variant (D5). This
-    # works because the LGPL configure passes --disable-avdevice: with
-    # CONFIG_AVDEVICE=0, fftools' #if CONFIG_AVDEVICE references (ffmpeg.c
-    # avdevice_register_all, opt_common.c device listing + PRINT_LIB_INFO)
-    # compile out and the link genuinely needs no -lavdevice. (Without
-    # --disable-avdevice the link fails with undefined avdevice_* symbols.)
-    # USE_SDL=2 is only consumed by ffplay_renderer.c, which is excluded.
-    DEVICE_LIB=()
+    # -lavdevice RESTORED for the player extension (the lavfi demuxer lives
+    # in libavdevice: lavfi.indev registers as the "lavfi" demuxer via
+    # avdevice_register_all). The LGPL configure keeps CONFIG_AVDEVICE=1, so
+    # fftools' #if CONFIG_AVDEVICE references (ffmpeg.c avdevice_register_all,
+    # opt_common.c device listing + PRINT_LIB_INFO) compile in and the link
+    # REQUIRES -lavdevice (the first census build failed with exactly those
+    # undefined symbols when the library was on but the flag was dropped).
+    # libavdevice is LGPL; under this census only lavfi.o + alldevices.c
+    # compile into it. USE_SDL=2 stays removed: it is only consumed by
+    # ffplay_renderer.c, which is excluded from the link.
+    DEVICE_LIB=(-lavdevice)
     SDL_FLAG=()
     EXTERNAL_LIBS=(
         -lz
