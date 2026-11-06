@@ -16,6 +16,61 @@ mkdir -p $WASM_DIR
 (cd $LIB_PATH/fftools/resources && xxd -n ff_graph_html_data -i graph.html > graph.html.c)
 (cd $LIB_PATH/fftools/resources && xxd -n ff_graph_html -i graph.html >> graph.html.c)
 
+# ---------------------------------------------------------------------------
+# Variant-dependent link inputs.
+#
+# The LGPL variant links ONLY libopus (BSD) and zlib (zlib license). The link
+# list — not configure — is what decides what code physically lands in
+# ffmpeg-lgpl.wasm: an archive referenced by -l but never pulled in by the
+# linker adds no code, but emscripten's linker-graph still includes its
+# referenced objects, so the ONLY way to guarantee the artifact contains no
+# GPL code (libx264, libx265, rubberband, ...) is to not reference it at all.
+#
+# The GPL variant keeps the EXACT original flag list (including -lavdevice
+# and -s USE_SDL=2, both dead weight: fftools/ffmpeg.c never calls
+# avdevice_register_all() and the only SDL user, ffplay_renderer.c, is
+# excluded from the link). The order of every flag in the GPL variant is
+# byte-identical to the pre-census script so that the rebuilt
+# ffmpeg-gpl.wasm stays hash-identical to the tested build (backup:
+# D:\intersub-4830\ffmpeg-wasm-backup-261106-01\wasm\,
+# sha256 d10200b794d539e86860143cc3acab63d8789747af2ad15bff92cdb72455b239).
+# ---------------------------------------------------------------------------
+if [ "$FFMPEG_LGPL" = false ] ; then
+    DEVICE_LIB=(-lavdevice)
+    SDL_FLAG=(-s USE_SDL=2)
+    EXTERNAL_LIBS=(
+        -laom
+        -lSvtAv1Enc -LSvtAv1Enc -Llibstvav1
+        -lopenh264
+        -lkvazaar
+        -lvpx
+        -lmp3lame
+        -lvorbis -lvorbisenc -lvorbisfile
+        -logg
+        -ltheora -ltheoraenc -ltheoradec
+        -lz
+        -lopus
+        -lwebp -lwebpmux -lsharpyuv
+        -lrubberband -lsamplerate -Lrubberband -Lsamplerate
+        -ljxl -ljxl_cms -ljxl_threads -lhwy -lbrotlienc -lbrotlidec -lbrotlicommon
+        -lzimg
+    )
+else
+    # -lavdevice and -s USE_SDL=2 removed for the LGPL variant (D5). This
+    # works because the LGPL configure passes --disable-avdevice: with
+    # CONFIG_AVDEVICE=0, fftools' #if CONFIG_AVDEVICE references (ffmpeg.c
+    # avdevice_register_all, opt_common.c device listing + PRINT_LIB_INFO)
+    # compile out and the link genuinely needs no -lavdevice. (Without
+    # --disable-avdevice the link fails with undefined avdevice_* symbols.)
+    # USE_SDL=2 is only consumed by ffplay_renderer.c, which is excluded.
+    DEVICE_LIB=()
+    SDL_FLAG=()
+    EXTERNAL_LIBS=(
+        -lz
+        -lopus
+    )
+fi
+
 FLAGS=(
   $LDFLAGS
 
@@ -23,24 +78,10 @@ FLAGS=(
   -I. -I./fftools -I./compat/stdbit -I$BUILD_DIR/include
   -Llibavcodec -Llibavdevice -Llibavfilter -Llibavformat -Llibavresample -Llibavutil -Llibswscale -Llibswresample
   -Wno-deprecated-declarations -Wno-pointer-sign -Wno-implicit-int-float-conversion -Wno-switch -Wno-parentheses -Qunused-arguments
-  -lavdevice -lavfilter -lavformat -lavcodec -lswresample -lswscale -lavutil -lm
+  "${DEVICE_LIB[@]}" -lavfilter -lavformat -lavcodec -lswresample -lswscale -lavutil -lm
 
   # Features
-  -laom
-  -lSvtAv1Enc -LSvtAv1Enc -Llibstvav1
-  -lopenh264
-  -lkvazaar
-  -lvpx
-  -lmp3lame
-  -lvorbis -lvorbisenc -lvorbisfile
-  -logg
-  -ltheora -ltheoraenc -ltheoradec
-  -lz
-  -lopus
-  -lwebp -lwebpmux -lsharpyuv
-  -lrubberband -lsamplerate -Lrubberband -Lsamplerate
-  -ljxl -ljxl_cms -ljxl_threads -lhwy -lbrotlienc -lbrotlidec -lbrotlicommon
-  -lzimg
+  "${EXTERNAL_LIBS[@]}"
 
   # Goes after `-l -L` switches see: https://gitlab.com/AOMediaCodec/SVT-AV1/-/issues/2052
   # there used to be `fftools/ffmpeg.c fftools/ffmpeg_dec.c ...` but the list wen too long already
@@ -48,7 +89,7 @@ FLAGS=(
 
   # Emscripten
   -lworkerfs.js
-  -s USE_SDL=2
+  "${SDL_FLAG[@]}"
   -s WASM_BIGINT
   -s MALLOC=mimalloc                   # available since 3.1.50
 #  -s EXPORT_ES6=1                     # https://github.com/emscripten-core/emscripten/issues/22508
@@ -93,8 +134,11 @@ FLAGS=(
   -s ASSERTIONS=1
 )
 
+# NOTE: the old `if [ "$FFMPEG_LGPL" = false ]` block that appended -lx264
+# -lx265 (and reassigned OUTPUT_FILENAME) is reconstructed below; the
+# OUTPUT_FILENAME reassignment was dead code (OUTPUT_PATH/_WV were already
+# computed by var.sh and INFO_FILE by the top of this script) and was dropped.
 if [ "$FFMPEG_LGPL" = false ] ; then
-    OUTPUT_FILENAME="$OUTPUT_FILENAME-lgpl"
     FLAGS+=(
         -lx264
         -lx265

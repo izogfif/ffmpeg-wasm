@@ -5,26 +5,41 @@ source $(dirname $0)/var.sh
 
 LIB_PATH=modules/ffmpeg
 
+# NOTE: --disable-everything is NOT here; it is the head of the LGPL
+# variant's component list and must come BEFORE every --enable-* component
+# flag (configure processes options in order: enables issued before
+# --disable-everything are wiped, enables after it survive).
 FLAGS=(
   --target-os=none        # use none to prevent any os specific configurations
   --arch=wasm32
   --cpu=generic
   --enable-cross-compile
   --enable-version3
-  --enable-zlib
-  --enable-libaom --disable-encoder=libaom_av1
-  --enable-libjxl
-  --enable-libopenh264
-  --enable-libkvazaar
-  --enable-libvpx
-  --enable-libmp3lame
-  --enable-libtheora
-  --enable-libvorbis
-  --enable-libopus
-  --enable-libwebp
-  --enable-libsvtav1
-  --enable-librubberband
-  --enable-libzimg
+)
+
+# GPL variant: the external-library block sits exactly where the pre-census
+# script had it (right after --enable-version3), so the GPL variant's flag
+# order is byte-identical to the tested build's configuration.
+if [ "$FFMPEG_LGPL" = false ] ; then
+    FLAGS+=(
+        --enable-zlib
+        --enable-libaom --disable-encoder=libaom_av1
+        --enable-libjxl
+        --enable-libopenh264
+        --enable-libkvazaar
+        --enable-libvpx
+        --enable-libmp3lame
+        --enable-libtheora
+        --enable-libvorbis
+        --enable-libopus
+        --enable-libwebp
+        --enable-libsvtav1
+        --enable-librubberband
+        --enable-libzimg
+    )
+fi
+
+FLAGS+=(
   --disable-stripping
   --disable-programs      # disable programs build (incl. ffplay, ffprobe & ffmpeg)
   --disable-doc
@@ -50,10 +65,107 @@ if [ "$FFMPEG_LGPL" = false ] ; then
         --enable-libx264
         --enable-libx265
     )
+else
+    # ------------------------------------------------------------------
+    # LGPL variant: --disable-everything + census contract.
+    #
+    # External libraries: ONLY libopus (BSD) and zlib (zlib license).
+    # Every census component below is native in-tree ffmpeg code (LGPL),
+    # verified against the wide-video/ffmpeg checkout in modules/ffmpeg
+    # (160737cf0d, 8.0.git): the native aac encoder is not GPL-gated and
+    # not experimental; the native vorbis/theora/opus/ass/ssa decoders do
+    # not require libvorbis/libtheora/libopus/libass; the png encoder needs
+    # zlib only.
+    #
+    # --enable-gpl is deliberately absent in this variant.
+    # ------------------------------------------------------------------
+    FLAGS+=(
+        --disable-everything
+
+        # libavdevice OFF: with --disable-everything alone, CONFIG_AVDEVICE
+        # stays 1 (it lives in LIBRARY_LIST, which --disable-everything does
+        # not touch), so fftools' guarded references (ffmpeg.c's
+        # #if CONFIG_AVDEVICE avdevice_register_all(), opt_common.c's
+        # devices block + PRINT_LIB_INFO(avdevice)) would compile in and
+        # require -lavdevice at link time. Disabling the library makes
+        # CONFIG_AVDEVICE 0, the references compile out (dead-code
+        # elimination at -O1+), and the census link needs no -lavdevice —
+        # the same mechanism upstream ffmpeg uses for --disable-avdevice.
+        "--disable-avdevice"
+
+        # External libraries (survive --disable-everything: they live in
+        # EXTERNAL_LIBRARY_LIST / EXTERNAL_AUTODETECT_LIBRARY_LIST, not in
+        # COMPONENT_LIST)
+        "--enable-zlib"
+        "--enable-libopus"
+
+        # Protocols: --disable-everything also unsets PROTOCOL_LIST, so the
+        # file protocol MUST be re-enabled for WORKERFS I/O (file.c goes
+        # through POSIX open() which the Emscripten FS/WORKERFS implements).
+        "--enable-protocol=file"
+
+        # Demuxers. NOTE: 'webm' is NOT a demuxer component in this tree —
+        # webm input is handled by the matroska demuxer (runtime name
+        # "matroska,webm", matroskadec.c:5037); the census line "matroska
+        # webm" is therefore satisfied by matroska alone.
+        "--enable-demuxer=matroska,mov,avi,asf,ogg,aac,ac3,eac3,dts,mp3,flac,truehd"
+
+        # Muxers (remux targets for the census inputs + image2 for the
+        # png/rawvideo frame-extraction path). NOTE: m4a/3gp/3g2/mj2 are
+        # runtime aliases of the mov/mp4 muxers, NOT configure components
+        # (verified against allformats.c); the real components are those
+        # listed here.
+        "--enable-muxer=matroska,webm,mov,mp4,ipod,psp,ogg,adts,wav,image2,image2pipe,null"
+
+        # Video decoders. NOTE: the msmpeg4v3 decoder's runtime listing name
+        # is "msmpeg4" (msmpeg4dec.c:908); the configure component is
+        # msmpeg4v3.
+        "--enable-decoder=hevc,mpeg4,theora,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2"
+
+        # Audio decoders. The mp3*/mp2* wildcards pull in the whole family
+        # (mp3float is what the mp3 demuxer actually selects; mp3on4* needs
+        # the mpegaudio parser). pcm_* / adpcm_* cover the "pcm/adpcm"
+        # census item; the wildcards are matched by configure's case-glob
+        # filter (configure:631,4743-4744), not by the shell.
+        "--enable-decoder=aac,ac3,eac3,dca,truehd,mlp,mp3*,mp2*,flac,opus,vorbis,alac,wmav1,wmav2,pcm_*,adpcm_*"
+
+        # Subtitle decoders. NOTE: 'mov_text' is the runtime name; the
+        # configure component is 'movtext' (movtextdec.c:594).
+        "--enable-decoder=subrip,ass,ssa,webvtt,movtext,pgssub,dvdsub"
+
+        # Encoders
+        "--enable-encoder=aac,libopus,rawvideo,png"
+
+        # Parsers: demuxers only auto-select some parsers and a missing
+        # parser is a SILENT degradation (demux.c falls back to
+        # AVSTREAM_PARSE_NONE with a VERBOSE-level log), so list them all.
+        # NOTE: the census 'avc' parser is spelled h264; the truehd parser
+        # is the mlp parser.
+        "--enable-parser=aac,ac3,dca,mlp,mpegaudio,mpeg4video,hevc,h264,vorbis,opus,flac"
+
+        # Bitstream filters: aac_adtstoasc is auto-selected by the mov/
+        # matroska muxers but is listed explicitly for clarity; the others
+        # are only reachable via an explicit -bsf and must be listed to
+        # exist at all.
+        "--enable-bsf=aac_adtstoasc,extract_extradata,eac3_core,truehd_core,filter_units,h264_mp4toannexb,trace_headers"
+
+        # Filters: buffer/abuffer/buffersink/abuffersink are added to
+        # filter_list.c unconditionally even under --disable-everything
+        # (configure:8982-8986). The rest is the set the CLI itself inserts
+        # (null/anull default graph, format/aformat negotiation, scale/
+        # aresample auto-inserted conversions, trim/atrim for -t/-ss/-to,
+        # and the autorotate/crop family which is default-on for rotated
+        # video). Filters used by a caller-supplied -vf/-af chain must be
+        # added here explicitly.
+        "--enable-filter=null,anull,format,aformat,scale,aresample,trim,atrim,crop,transpose,hflip,vflip,rotate"
+    )
 fi
 
-sed -i 's/    librubberband//g' $LIB_PATH/configure
-sed -i 's/    vapoursynth/librubberband\nvapoursynth/g' $LIB_PATH/configure
+# NOTE: the two historical `sed -i` lines that lifted librubberband out of
+# ffmpeg's EXTERNAL_LIBRARY_GPL_LIST so that the rubberband filter could be
+# used in the LGPL variant are REMOVED. They were the mechanism that smuggled
+# GPL code into the LGPL build; the LGPL variant no longer enables
+# --enable-librubberband at all.
 
 # Guarded pthread-types fallback for fftools (kept from the threadless build,
 # harmless when pthreads exist): ffmpeg's fftools (ffmpeg.h EncStats.lock,
